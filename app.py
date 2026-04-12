@@ -12,6 +12,10 @@ Application to display an avatar from a selection of image files.
 # - display image
 # - monitor buttons for UP/DOWN selection
 
+# v2
+# Fixing not minimising on cancel
+# Fixing not redisplaying on re-invocation
+
 import app
 import os
 import sys
@@ -20,8 +24,8 @@ import settings
 from app_components import Notification, clear_background
 from events.input import BUTTON_TYPES, Buttons
 
-BUT_X = BUTTON_TYPES["CANCEL"]
-BUT_U = BUTTON_TYPES["UP"]
+BUT_F = BUTTON_TYPES["CANCEL"]
+BUT_A = BUTTON_TYPES["UP"]
 BUT_D = BUTTON_TYPES["DOWN"]
 
 if sys.implementation.name == "micropython":
@@ -84,6 +88,8 @@ class DisplayAvatar(app.App):
         self.__image_files_list = []
         self.__image_count = 0
         self.__image_index = 0
+        self.__minimised = False
+
         asset_files = os.listdir(IMAGE_DIR)
         for f in asset_files:
             if is_image_file(IMAGE_DIR + '/' + f):
@@ -92,17 +98,28 @@ class DisplayAvatar(app.App):
 
 
     def update(self, delta):
+
+        if self.__buttons.get(BUT_F):
+            self.__buttons.clear()
+            self.__last_image = None
+            self.minimise()
+            self.__minimised = True
+            print(f'minimising; self.__minimised = {self.__minimised}')
+            return
+
+        self.__minimised = False # tracking whether we are active to mitigate OS fault
+        #print(f'active; self.__minimised = {self.__minimised}')
         if self.__image_count>0:
 
-            if self.__buttons.get(BUT_U):
-                if BUT_U in self.__debounce:
+            if self.__buttons.get(BUT_A):
+                if BUT_A in self.__debounce:
                     pass
                 else:
                     self.__image_index = (self.__image_index - 1) % self.__image_count
-                    self.__debounce.append(BUT_U)
+                    self.__debounce.append(BUT_A)
             else:
-                if BUT_U in self.__debounce:
-                    self.__debounce.remove(BUT_U)
+                if BUT_A in self.__debounce:
+                    self.__debounce.remove(BUT_A)
 
             if self.__buttons.get(BUT_D):
                 if BUT_D in self.__debounce:
@@ -118,16 +135,29 @@ class DisplayAvatar(app.App):
                 self.notification.update(delta)
 
     def draw(self, ctx):
+        # ignore spurious calls - mitigation for presumed OS fault
+        if self.__minimised:
+            print('draw call while minimised')
+            return
+
         if self.__image_count>0:
+
+            # has a new image been selected? If not, we ignore
             if self.__last_image==self.__image_index:
+                #print(f'Last image index: {self.__last_image}')
+                #print(f'This image index: {self.__image_index}')
                 return
+
+            # get the image file name, construct the path, and display it
             f = self.__image_files_list[self.__image_index]
             print(f'Displaying {f}')
             f = IMAGE_DIR + '/' + f
             clear_background(ctx)
             ctx.image(f, -120, -120, 240, 240)
             self.__last_image=self.__image_index
+
         else:
+            # no images - tell the user
             ctx.save()
             ctx.rgb(255, 127, 0).rectangle(-120, -120, 240, 240).fill()
             ctx.font_size = 32
