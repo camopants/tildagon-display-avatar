@@ -1,0 +1,15 @@
+[app]
+name = "Select Avatar"
+category = "Badge"
+menu = "Badge"
+#wifi_preference = false
+
+[entry]
+class = "DisplayAvatar"
+
+[metadata]
+author = "Camopants"
+license = "LGPL-3.0-only"
+url = "https://codeberg.org/camopants/tildagon-display-avatar"
+description = "Display one of a selection of avatars, selecting with UP and DOWN buttons"
+version = "v1"
