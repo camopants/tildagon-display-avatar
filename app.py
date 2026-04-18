@@ -140,6 +140,7 @@ class DisplayAvatar(app.App):
             print('draw call while minimised')
             return
 
+        ctx.save()
         if self.__image_count>0:
 
             # has a new image been selected? If not, we ignore
@@ -149,22 +150,24 @@ class DisplayAvatar(app.App):
                 return
 
             # get the image file name, construct the path, and display it
-            f = self.__image_files_list[self.__image_index]
+            self.__last_image=self.__image_index + 0
+            f = self.__image_files_list[self.__last_image]
             print(f'Displaying {f}')
             f = IMAGE_DIR + '/' + f
+            print('Clear background')
             clear_background(ctx)
+            print('Draw image')
             ctx.image(f, -120, -120, 240, 240)
-            self.__last_image=self.__image_index
 
         else:
             # no images - tell the user
-            ctx.save()
             ctx.rgb(255, 127, 0).rectangle(-120, -120, 240, 240).fill()
             ctx.font_size = 32
             ctx.rgb(0, 0, 0).move_to(-80, int(ctx.font_size/2)).text("No avatars found")
-            ctx.restore()
+        ctx.restore()
 
         if self.notification:
+            print('Notification draw')
             self.notification.draw(ctx)
 
 __app_export__ = DisplayAvatar
