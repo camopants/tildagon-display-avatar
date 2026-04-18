@@ -1,5 +1,5 @@
 # tildagon-display-avatar
-Display an avatar from a selection of imageson the EMF Tildagon badge
+Display an avatar from a selection of images on the EMF Tildagon badge
 
 This is a dummy repo, solely for the purpose linking the working releases of the 
 application into the [Tildagon App Store](https://apps.badge.emfcamp.org/).
