@@ -1,5 +1,5 @@
 [app]
-name = "Select Avatar"
+name = "Select Avatars"
 category = "Badge"
 menu = "Badge"
 #wifi_preference = false
@@ -11,5 +11,5 @@ class = "DisplayAvatar"
 author = "Camopants"
 license = "LGPL-3.0-only"
 url = "https://codeberg.org/camopants/tildagon-display-avatar"
-description = "Display one of a selection of avatars, selecting with UP and DOWN buttons. Upload additional avatars with mpremote."
-version = "v3"
+description = "Display a selection of avatars, selecting with UP and DOWN buttons. Upload additional avatars with mpremote."
+version = "4.0"

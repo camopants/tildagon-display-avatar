@@ -1,5 +1,5 @@
 ### Author: Raj Rijhwani aka Camopants
-### Description: Displays helpful orientation assistance for drinkers
+### Description: BarAssist - Displays helpful orientation assistance for drinkers
 ### Category: Wearables
 ### License: MIT
 """
@@ -16,6 +16,13 @@ Application to display an avatar from a selection of image files.
 # Fixing not minimising on cancel
 # Fixing not redisplaying on re-invocation
 
+# v3
+# Sub 0 - change from minimisation to full termination on exit
+# Sub 1 - confirmation display on open
+
+# v4
+# Sub 0 - modifying for marquee display
+
 import app
 import os
 import sys
@@ -24,9 +31,17 @@ import settings
 from app_components import Notification, clear_background
 from events.input import BUTTON_TYPES, Buttons
 
-BUT_F = BUTTON_TYPES["CANCEL"]
-BUT_A = BUTTON_TYPES["UP"]
-BUT_D = BUTTON_TYPES["DOWN"]
+from system.eventbus import eventbus
+
+from system.scheduler.events import RequestStopAppEvent
+
+VERSION = "4.0"
+BUT_CANX  = BUTTON_TYPES["CANCEL"]
+BUT_CONF  = BUTTON_TYPES["CONFIRM"]
+#BUT_RIGHT = BUTTON_TYPES["RIGHT"]
+#BUT_LEFT  = BUTTON_TYPES["LEFT"]
+BUT_UP    = BUTTON_TYPES["UP"]
+BUT_DOWN  = BUTTON_TYPES["DOWN"]
 
 if sys.implementation.name == "micropython":
     apps = os.listdir("/apps")
@@ -47,7 +62,6 @@ IMAGE_SIGS = {
         b'BM': 'bmp',
         b'RIFF': 'webp_riff'  # need extra check
     }
-
 
 def is_file(path):
     try:
@@ -78,92 +92,279 @@ def is_image_file(path):
 class DisplayAvatar(app.App):
 
     def __init__(self):
+        super().__init__()
         self.notification = None
+        self.__run_state = 0
+
         self.__buttons = Buttons(self)
         self.__last_button = None
         self.__debounce = [] # button debounce array
+        self.__exit_prompt = False
+        self.__exit_display = False
 
         self.__last_image = None
         self.image_exists = False
         self.__image_files_list = []
         self.__image_count = 0
         self.__image_index = 0
-        self.__minimised = False
-
-        asset_files = os.listdir(IMAGE_DIR)
-        for f in asset_files:
-            if is_image_file(IMAGE_DIR + '/' + f):
-                self.__image_files_list.append(f)
-                self.__image_count += 1
+        self.__timer = 0
+        self.__images_loaded = False
+        self.__asset_files = None
+        self.__app_name = "camopants_select_avatar"
+        print(self.__asset_files)
 
 
     def update(self, delta):
 
-        if self.__buttons.get(BUT_F):
-            self.__buttons.clear()
-            self.__last_image = None
-            self.minimise()
-            self.__minimised = True
-            print(f'minimising; self.__minimised = {self.__minimised}')
+        def read_settings():
+            s = settings.get(self.__app_name)
+            # Generate defaults here
+            c = False
+            if s==None:
+                print(f'Settings for "{self.__app_name}" empty; creating defaults')
+                s = {}
+            if not 'speed' in s:
+                s['speed'] = 50
+            if c:
+                write_settings(s)
+            return s
+
+        def write_settings(s=None):
+            if s==None:
+                print(f'settings not provided for "{self.__app_name}"')
+                return False
+            print('Settings write and save')
+            settings.set(self.__app_name, s)
+            try:
+                settings.save()
+            except:
+                print(f'settings not saved for "{self.__app_name}"')
+                return False
+            print(f'settings saved for "{self.__app_name}"')
+            return True
+
+        def process_button(oButton):
+            if self.__buttons.get(oButton):
+                if oButton in self.__debounce:
+                    pass
+                else:
+                    print(f'{oButton} pressed')
+                    self.__debounce.append(oButton)
+                    return True
+            else:
+                if oButton in self.__debounce:
+                    print(f'{oButton} released')
+                    self.__debounce.remove(oButton)
+            return False
+
+
+        #print(f'update() ({self.__run_state})')
+        if self.__run_state==0:
             return
 
-        self.__minimised = False # tracking whether we are active to mitigate OS fault
-        #print(f'active; self.__minimised = {self.__minimised}')
+        # Get settings
+        if self.__run_state==1:
+            print(f'collect settings ({self.__run_state})')
+            self.__settings = read_settings()
+            self.__speed = self.__settings['speed']
+            print(f'settings: {self.__settings}')
+            self.__run_state += 1
+            return
+
+        elif self.__run_state==2 and self.__asset_files==None:
+            print(f'enumerate avatar files ({self.__run_state})')
+            self.__asset_files = tuple(sorted(os.listdir(IMAGE_DIR)))
+            self.__run_state += 1
+            print(f'file: {self.__asset_files}')
+            return
+
+        elif self.__run_state==3:
+            print(f'reconcile settings and available files ({self.__run_state})')
+            self.__display_array = self.__settings.get('show')
+            self.__display_array = [] if self.__display_array==None else [i for i in set(self.__display_array).intersection(set(self.__asset_files))]
+            self.__run_state += 2 if self.__display_array==[] else 1
+            print(f'reconciled ({self.__run_state})')
+            return
+
+        elif self.__run_state==4:
+            self.__timer = (self.__timer + 1) % self.__speed
+            if self.__timer==0:
+                d = self.__image_files_list if self.__display_array==[] else self.__display_array
+                self.__image_index = (self.__image_index + 1) % len(d)
+
+        elif self.__run_state==5:
+            pass
+
+
+        if process_button(BUT_CANX):
+            if self.__run_state==5:
+                self.__run_state = 4
+                self.__image_index = 0
+                self.__timer = 0
+            else:
+                self.__exit_prompt = not self.__exit_prompt
+                if self.__exit_prompt:
+                    print("CANX pressed - exit?")
+                else:
+                    print("CANX pressed - revert")
+
+        #if self.__buttons.get(BUT_CONF) and self.__exit_prompt:
+        if self.__buttons.get(BUT_CONF) and self.__exit_prompt:
+            print("CONFIRM pressed - exit confirmed")
+            eventbus.emit(RequestStopAppEvent(self))
+            return
+
+        if not self.__images_loaded:
+            return
+
         if self.__image_count>0:
 
-            if self.__buttons.get(BUT_A):
-                if BUT_A in self.__debounce:
-                    pass
-                else:
-                    self.__image_index = (self.__image_index - 1) % self.__image_count
-                    self.__debounce.append(BUT_A)
-            else:
-                if BUT_A in self.__debounce:
-                    self.__debounce.remove(BUT_A)
+            # multi-function
+            if process_button(BUT_CONF):
+                if self.__run_state==4:
+                    self.__run_state = 5
+                    self.__image_index = 0
+                    print("CONFIRM pressed - enter selection mode")
+                    self.__last_image = None
+                elif self.__run_state==5:
+                    f = self.__image_files_list[self.__last_image]
+                    if f in self.__display_array:
+                        print(f'CONFIRM pressed - {f} deselected')
+                        self.__display_array.remove(f)
+                    else:
+                        print(f'CONFIRM pressed - {f} selected')
+                        self.__display_array.append(f)
+                    print(f'{self.__display_array}')
+                    self.__settings['show'] = self.__display_array
+                    write_settings(self.__settings)
+                    self.__last_image = None
 
-            if self.__buttons.get(BUT_D):
-                if BUT_D in self.__debounce:
-                    pass
-                else:
+            # image select up
+
+            if process_button(BUT_UP):
+                if self.__run_state==4:
+                    print("UP pressed - speed up")
+                    if self.__speed>5:
+                        self.__speed /= 2
+                        if self.__speed<5:
+                            self.__speed = 5
+                elif self.__run_state==5:
+                    print("UP pressed - change image")
+                    self.__image_index = (self.__image_index - 1) % self.__image_count
+
+            # image select down
+            if process_button(BUT_DOWN):
+                if self.__run_state==4:
+                    pass # decrease the cycle rate
+                    print("DOWN pressed - slow down")
+                    if self.__speed<200:
+                        self.__speed *= 2
+                        if self.__speed>200:
+                            self.__speed = 200
+                elif self.__run_state==5:
+                    print("DOWN pressed - change image")
                     self.__image_index = (self.__image_index + 1) % self.__image_count
-                    self.__debounce.append(BUT_D)
-            else:
-                if BUT_D in self.__debounce:
-                    self.__debounce.remove(BUT_D)
 
             if self.notification:
                 self.notification.update(delta)
 
     def draw(self, ctx):
-        # ignore spurious calls - mitigation for presumed OS fault
-        if self.__minimised:
-            print('draw call while minimised')
-            return
+
+        def panel_display(ctx, bg, fg, text_array, fs=24):
+            ctx.rgb(*bg).rectangle(-120, -120, 240, 240).fill().text('')
+            ctx.font_size = fs
+            s = int(ctx.font_size*5/4)
+            print(f'font: {ctx.font_size}; step: {s}')
+            y = int(-((len(text_array)-1)*s/2))
+            for t in text_array:
+                if t:
+                    ctx.move_to(-100, y).rgb(*fg).text(t)
+                y += s
+
+        #print(f'draw() ({self.__run_state})')
 
         ctx.save()
-        if self.__image_count>0:
 
-            # has a new image been selected? If not, we ignore
-            if self.__last_image==self.__image_index:
-                #print(f'Last image index: {self.__last_image}')
-                #print(f'This image index: {self.__image_index}')
-                return
+        if self.__run_state==0:
+            print(f'loading notice ({self.__run_state})')
+            self.__exit_display = True
+            bg = (0, 0.027, 0.188)
+            fg = (0.973,0.883, 0)
+            l = ['Avatar files loading']
+            panel_display(ctx, bg, fg, l, fs=24)
+            self.__last_image = None
+            self.__run_state += 1
+            print(f'notice displayed ({self.__run_state})')
 
-            # get the image file name, construct the path, and display it
-            self.__last_image=self.__image_index + 0
-            f = self.__image_files_list[self.__last_image]
-            print(f'Displaying {f}')
-            f = IMAGE_DIR + '/' + f
-            print('Clear background')
-            clear_background(ctx)
-            print('Draw image')
-            ctx.image(f, -120, -120, 240, 240)
+        elif self.__run_state<4:
+            pass
+
+        elif self.__exit_prompt:
+            #if not self.__exit_display:
+            if not self.__last_image==None:
+                print('exit prompt')
+                self.__exit_display = True
+                bg = (1.0, 0, 0)
+                fg = (0, 0, 0)
+                l = ['[CANCEL] pressed']
+                l.append('')
+                l.append('[CANCEL] to ignore')
+                l.append('[CONFIRM] to exit')
+                panel_display(ctx, bg, fg, l, fs=24)
+                self.__last_image = None
 
         else:
-            # no images - tell the user
-            ctx.rgb(255, 127, 0).rectangle(-120, -120, 240, 240).fill()
-            ctx.font_size = 32
-            ctx.rgb(0, 0, 0).move_to(-80, int(ctx.font_size/2)).text("No avatars found")
+            #self.__exit_display = False
+
+            if not self.__images_loaded:
+                bg = (0, 0, 0)
+                fg = (1.0, 0.5, 0)
+                l = ['Loading...']
+                panel_display(ctx, bg, fg, l, 24)
+                self.__last_image = None
+                print('Image loading starts')
+
+                for f in self.__asset_files:
+                    print(f'Trying {f}')
+                    if is_image_file(IMAGE_DIR + '/' + f):
+                        self.__image_files_list.append(f)
+                        self.__image_count += 1
+                self.__images_loaded = True
+
+            if self.__image_count>0:
+
+                # has a new image been selected? If not, we ignore
+                if self.__last_image==self.__image_index:
+                    return
+
+                # get the image file name, construct the path, and display it
+                self.__last_image=self.__image_index + 0
+                if self.__run_state==4 and self.__display_array!=[]:
+                    i = self.__display_array[self.__last_image]
+                else:
+                    i = self.__image_files_list[self.__last_image]
+                print(f'Displaying {i}')
+                f = IMAGE_DIR + '/' + i
+                print('Clear background')
+                clear_background(ctx)
+                print('Draw image')
+                ctx.image(f, -120, -120, 240, 240)
+                if self.__run_state==5:
+                    if i in self.__display_array:
+                        print('do tick')
+                        t = ASSET_BASE + '/' + 'tick-circle-64x64.png'
+                        tx = 16
+                        ctx.image(t, tx, tx, tx+64, tx+64)
+                    else:
+                        print('no tick')
+
+            else:
+                bg = (0, 0.027, 0.188)
+                fg = (0.973,0.883, 0)
+                l = ['No avatars found']
+                panel_display(ctx, bg, fg, l)
+                self.__last_image = -1
+
         ctx.restore()
 
         if self.notification:
